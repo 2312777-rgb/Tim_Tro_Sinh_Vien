@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "281121728435",
+    "project_id": "tim-tro-sinh-vien",
+    "storage_bucket": "tim-tro-sinh-vien.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:281121728435:android:1dfd6146de9b7364344dc6",
+        "android_client_info": {
+          "package_name": "com.example.tim_tro_sinh_vien"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAOuAbw0qOaU3qLsoDcGN1S8NWnOuPgZ28"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

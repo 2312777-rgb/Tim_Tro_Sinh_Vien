@@ -1,0 +1,2 @@
+sh
+firebase login
