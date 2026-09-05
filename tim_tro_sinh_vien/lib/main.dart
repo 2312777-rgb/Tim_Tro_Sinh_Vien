@@ -634,9 +634,9 @@ class _PostTabState extends State<PostTab> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   elevation: 2,
                 ),
-                child: isUploading 
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('ĐĂNG TIN NGAY', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: isUploading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('ĐĂNG TIN NGAY', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -757,7 +757,7 @@ class SettingsPage extends StatelessWidget {
           _buildSettingItem(
             Icons.delete_outline_rounded,
             'Xóa tài khoản',
-            () {
+                () {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
@@ -776,13 +776,13 @@ class SettingsPage extends StatelessWidget {
                           final user = FirebaseAuth.instance.currentUser;
                           if (user != null) {
                             final uid = user.uid;
-                            
+
                             // 1. Xóa tất cả tin đăng của người dùng trong Firestore
                             final rooms = await FirebaseFirestore.instance
                                 .collection('rooms')
                                 .where('ownerId', isEqualTo: uid)
                                 .get();
-                            
+
                             final batch = FirebaseFirestore.instance.batch();
                             for (var doc in rooms.docs) {
                               batch.delete(doc.reference);
@@ -796,7 +796,7 @@ class SettingsPage extends StatelessWidget {
                             Navigator.pushAndRemoveUntil(
                               context,
                               MaterialPageRoute(builder: (context) => const LoginPage()),
-                              (route) => false,
+                                  (route) => false,
                             );
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Tài khoản và toàn bộ bài đăng đã được xóa thành công.')),
@@ -848,7 +848,7 @@ class SettingsPage extends StatelessWidget {
                           Navigator.pushAndRemoveUntil(
                             context,
                             MaterialPageRoute(builder: (context) => const LoginPage()),
-                            (route) => false,
+                                (route) => false,
                           );
                         },
                         child: const Text('Đăng xuất', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),

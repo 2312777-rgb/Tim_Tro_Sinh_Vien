@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gcm_defaultSenderId" translatable="false">281121728435</string>
+    <string name="google_api_key" translatable="false">AIzaSyAOuAbw0qOaU3qLsoDcGN1S8NWnOuPgZ28</string>
+    <string name="google_app_id" translatable="false">1:281121728435:android:1dfd6146de9b7364344dc6</string>
+    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyAOuAbw0qOaU3qLsoDcGN1S8NWnOuPgZ28</string>
+    <string name="google_storage_bucket" translatable="false">tim-tro-sinh-vien.firebasestorage.app</string>
+    <string name="project_id" translatable="false">tim-tro-sinh-vien</string>
+</resources>

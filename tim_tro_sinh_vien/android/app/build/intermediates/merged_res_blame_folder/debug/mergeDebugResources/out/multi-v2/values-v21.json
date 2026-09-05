@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.tim_tro_sinh_vien.app-mergeDebugResources-48:/values-v21/values-v21.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\toan8\\.gradle\\caches\\9.1.0\\transforms\\6578a7edc78a1e18882a7796237aee13\\workspace\\transformed\\credentials-play-services-auth-1.2.0-rc01\\res\\values-v21\\values-v21.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endLines": "9",
+                        "endColumns": "12",
+                        "endOffsets": "543"
+                    }
+                }
+            ]
+        }
+    ]
+}
