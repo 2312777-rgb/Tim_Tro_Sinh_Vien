@@ -350,7 +350,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 }
-
 // ==========================================
 // MODEL DỮ LIỆU
 // ==========================================
@@ -362,8 +361,10 @@ class Room {
   final String imageUrl;
   final String description;
   final String ownerName;
-  final String ownerAvatar; // Đã thêm Avatar chủ bài đăng
+  final String ownerAvatar;
   final String roomType;
+  final DateTime createdAt;
+  final List<String> likedBy;
 
   Room({
     required this.id,
@@ -374,10 +375,11 @@ class Room {
     required this.description,
     required this.ownerName,
     required this.ownerAvatar,
+    required this.createdAt,
+    required this.likedBy,
     this.roomType = 'Phòng đơn',
   });
 }
-
 // ==========================================
 // TRANG CHỦ LƯỚI (DẠNG PINTEREST)
 // ==========================================
@@ -394,64 +396,42 @@ class HomeTab extends StatelessWidget {
         elevation: 0,
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search_rounded, color: Colors.black, size: 26),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Tính năng tìm kiếm đang phát triển')),
-              );
-            },
-          ),
+          IconButton(icon: const Icon(Icons.search_rounded, color: Colors.black, size: 26), onPressed: () {}),
           const SizedBox(width: 8),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('rooms')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
+        stream: FirebaseFirestore.instance.collection('rooms').orderBy('createdAt', descending: true).snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return const Center(child: Text('Đã xảy ra lỗi', style: TextStyle(color: Colors.black)));
-          }
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Colors.blue));
+          if (snapshot.hasError) return const Center(child: Text('Đã xảy ra lỗi'));
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Colors.blue));
-          }
-
-          final roomDocs = snapshot.data!.docs;
-
-          if (roomDocs.isEmpty) {
-            return const Center(
-              child: Text(
-                'Chưa có tin đăng nào.\nHãy là người đầu tiên!',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.black54, fontSize: 16),
-              ),
-            );
-          }
+          final roomDocs = snapshot.data?.docs ?? [];
+          if (roomDocs.isEmpty) return const Center(child: Text('Chưa có tin đăng nào.'));
 
           return GridView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 0.75,
+              crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.75,
             ),
             itemCount: roomDocs.length,
             itemBuilder: (context, index) {
               final data = roomDocs[index].data() as Map<String, dynamic>;
+
+              DateTime postTime = DateTime.now();
+              if (data['createdAt'] != null) postTime = (data['createdAt'] as Timestamp).toDate();
+
+              // Lấy mảng likedBy từ Firebase (nếu chưa có thì để mảng rỗng)
+              List<String> postLikedBy = List<String>.from(data['likedBy'] ?? []);
+
               final room = Room(
                 id: roomDocs[index].id,
-                title: data['title'] ?? '',
-                address: data['address'] ?? '',
-                price: (data['price'] ?? 0).toDouble(),
-                imageUrl: data['imageUrl'] ?? 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=500&q=80',
-                description: data['description'] ?? '',
-                ownerName: data['ownerName'] ?? 'Người dùng',
-                ownerAvatar: data['ownerAvatar'] ?? defaultAvatarUrl, // Lấy Avatar từ Database
-                roomType: data['roomType'] ?? 'Phòng đơn',
+                title: data['title'] ?? '', address: data['address'] ?? '',
+                price: (data['price'] ?? 0).toDouble(), imageUrl: data['imageUrl'] ?? '',
+                description: data['description'] ?? '', ownerName: data['ownerName'] ?? 'Người dùng',
+                ownerAvatar: data['ownerAvatar'] ?? defaultAvatarUrl, roomType: data['roomType'] ?? 'Phòng đơn',
+                createdAt: postTime,
+                likedBy: postLikedBy, // Gán dữ liệu vào object
               );
               return RoomGridItem(room: room);
             },
@@ -474,73 +454,49 @@ class RoomGridItem extends StatefulWidget {
 }
 
 class _RoomGridItemState extends State<RoomGridItem> {
-  bool isLiked = false;
+  // Lệnh đẩy tym lên Firebase
+  void toggleLike() async {
+    String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
 
-  void toggleLike() {
-    setState(() {
-      isLiked = !isLiked;
-    });
+    DocumentReference roomRef = FirebaseFirestore.instance.collection('rooms').doc(widget.room.id);
+    bool isLiked = widget.room.likedBy.contains(uid); // Đã tym chưa?
+
+    if (isLiked) {
+      await roomRef.update({'likedBy': FieldValue.arrayRemove([uid])}); // Bỏ tym
+    } else {
+      await roomRef.update({'likedBy': FieldValue.arrayUnion([uid])}); // Thêm tym
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Kiểm tra trực tiếp dữ liệu mảng từ Firebase để hiện Đỏ hoặc Trắng
+    String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    bool isLiked = widget.room.likedBy.contains(uid);
+
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => RoomDetailScreen(
-              room: widget.room,
-              initialLikeState: isLiked,
-            ),
-          ),
-        ).then((_) {
-          setState(() {});
-        });
+        Navigator.push(context, MaterialPageRoute(builder: (context) => RoomDetailScreen(room: widget.room)));
       },
       child: Stack(
         fit: StackFit.expand,
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.network(
-              widget.room.imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
-                color: Colors.grey[200],
-                child: const Icon(Icons.image_not_supported, color: Colors.grey),
-              ),
-            ),
+            child: Image.network(widget.room.imageUrl, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey[200])),
           ),
+          Positioned(bottom: 0, left: 0, right: 0, height: 50, child: Container(decoration: BoxDecoration(borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)), gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black.withOpacity(0.3), Colors.transparent])))),
           Positioned(
-            bottom: 0, left: 0, right: 0,
-            height: 50,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: [Colors.black.withOpacity(0.3), Colors.transparent],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 8,
-            right: 8,
+            bottom: 8, right: 8,
             child: GestureDetector(
               onTap: toggleLike,
               child: Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: Colors.black.withOpacity(0.2), shape: BoxShape.circle),
                 child: Icon(
                   isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                  color: isLiked ? Colors.red : Colors.white,
-                  size: 22,
+                  color: isLiked ? Colors.red : Colors.white, size: 22,
                 ),
               ),
             ),
@@ -549,20 +505,15 @@ class _RoomGridItemState extends State<RoomGridItem> {
       ),
     );
   }
+
 }
 
 // ==========================================
-// TRANG CHI TIẾT THEO PHONG CÁCH PIXIV
+// TRANG CHI TIẾT
 // ==========================================
-class RoomDetailScreen extends StatefulWidget {
+  class RoomDetailScreen extends StatefulWidget {
   final Room room;
-  final bool initialLikeState;
-
-  const RoomDetailScreen({
-    super.key,
-    required this.room,
-    this.initialLikeState = false,
-  });
+  const RoomDetailScreen({super.key, required this.room});
 
   @override
   State<RoomDetailScreen> createState() => _RoomDetailScreenState();
@@ -574,21 +525,31 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
   @override
   void initState() {
     super.initState();
-    isLiked = widget.initialLikeState;
+    String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    isLiked = widget.room.likedBy.contains(uid);
   }
 
-  void toggleLike() {
+  void toggleLike() async {
+    String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+
+    // Đổi giao diện lập tức (Optimistic Update cho mượt)
     setState(() {
       isLiked = !isLiked;
     });
+
+    // Cập nhật lên Firebase song song
+    DocumentReference roomRef = FirebaseFirestore.instance.collection('rooms').doc(widget.room.id);
+    if (isLiked) {
+      await roomRef.update({'likedBy': FieldValue.arrayUnion([uid])});
+    } else {
+      await roomRef.update({'likedBy': FieldValue.arrayRemove([uid])});
+    }
   }
 
   String _formatPrice(double price) {
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(price % 1000000 == 0 ? 0 : 1)} Tr';
-    } else {
-      return '${price.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} đ';
-    }
+    if (price >= 1000000) return '${(price / 1000000).toStringAsFixed(price % 1000000 == 0 ? 0 : 1)} Tr';
+    return '${price.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} đ';
   }
 
   @override
@@ -599,151 +560,79 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. HÌNH ẢNH HERO BÊN TRÊN
             Stack(
               children: [
                 Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(
-                    minHeight: 300,
-                    maxHeight: 450,
-                  ),
-                  child: Image.network(
-                    widget.room.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.image_not_supported, size: 50, color: Colors.grey),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 0, left: 0, right: 0,
-                  height: 100,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.black.withOpacity(0.5), Colors.transparent],
-                      ),
-                    ),
-                  ),
+                  width: double.infinity, constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
+                  child: Image.network(widget.room.imageUrl, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey[200])),
                 ),
                 SafeArea(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildNavButton(Icons.arrow_back_ios_new_rounded, () => Navigator.pop(context)),
-                        _buildNavButton(Icons.more_vert_rounded, () {}),
-                      ],
+                    padding: const EdgeInsets.all(8.0),
+                    child: IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), shape: BoxShape.circle), child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20)),
                     ),
                   ),
                 ),
               ],
             ),
-
-            // 2. KHU VỰC NỘI DUNG CHÍNH
             Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    widget.room.title,
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.3),
-                  ),
+                  Text(widget.room.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.3)),
                   const SizedBox(height: 20),
-
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: Colors.grey[200],
-                        backgroundImage: NetworkImage(widget.room.ownerAvatar), // Hiển thị Avatar thật của chủ bài đăng
-                      ),
+                      CircleAvatar(radius: 20, backgroundImage: NetworkImage(widget.room.ownerAvatar)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              widget.room.ownerName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
-                            ),
-                            Row(
-                              children: [
-                                Icon(Icons.verified_rounded, color: Colors.blue[600], size: 12),
-                                const SizedBox(width: 4),
-                                Text('Đã xác thực', style: TextStyle(color: Colors.blue[600], fontSize: 12, fontWeight: FontWeight.w500)),
-                              ],
-                            ),
+                            Text(widget.room.ownerName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Row(children: [Icon(Icons.verified_rounded, color: Colors.blue[600], size: 12), const SizedBox(width: 4), Text('Đã xác thực', style: TextStyle(color: Colors.blue[600], fontSize: 12))]),
                           ],
                         ),
                       ),
                       ElevatedButton(
                         onPressed: () {},
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
-                          minimumSize: const Size(0, 36),
-                        ),
-                        child: const Text('Liên hệ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, elevation: 0, minimumSize: const Size(0, 36)),
+                        child: const Text('Liên hệ', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 20),
-
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildTag(widget.room.roomType, Colors.blue),
-                      _buildTag('${_formatPrice(widget.room.price)}/tháng', Colors.red),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.location_on_rounded, color: Colors.grey[500], size: 18),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          widget.room.address,
-                          style: TextStyle(fontSize: 14, color: Colors.grey[800], fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                    ],
-                  ),
+                  Text('${_formatPrice(widget.room.price)}/tháng', style: const TextStyle(color: Colors.red, fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-
-                  Text(
-                    widget.room.description,
-                    style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.6),
-                  ),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.location_on_rounded, color: Colors.grey[500], size: 18), const SizedBox(width: 6), Expanded(child: Text(widget.room.address, style: TextStyle(fontSize: 14, color: Colors.grey[800], fontWeight: FontWeight.w500)))]),
+                  const SizedBox(height: 16),
+                  Text(widget.room.description, style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.6)),
                   const SizedBox(height: 40),
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildActionIcon(
-                        icon: isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                        label: 'Thích',
-                        iconColor: isLiked ? Colors.red : Colors.grey[700]!,
+                      GestureDetector(
                         onTap: toggleLike,
+                        child: Column(
+                          children: [
+                            Icon(isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: isLiked ? Colors.red : Colors.grey[700]!, size: 28),
+                            const SizedBox(height: 6),
+                            Text('Thích', style: TextStyle(color: Colors.grey[700], fontSize: 12, fontWeight: FontWeight.w500)),
+                          ],
+                        ),
                       ),
-                      _buildActionIcon(
-                        icon: Icons.share_rounded,
-                        label: 'Chia sẻ',
-                        iconColor: Colors.grey[700]!,
+                      GestureDetector(
                         onTap: () {},
+                        child: Column(
+                          children: [
+                            Icon(Icons.share_rounded, color: Colors.grey[700]!, size: 28),
+                            const SizedBox(height: 6),
+                            Text('Chia sẻ', style: TextStyle(color: Colors.grey[700], fontSize: 12, fontWeight: FontWeight.w500)),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -756,6 +645,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       ),
     );
   }
+}
 
   Widget _buildNavButton(IconData icon, VoidCallback onTap) {
     return IconButton(
@@ -798,8 +688,6 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       ),
     );
   }
-}
-
 // ==========================================
 // TRANG ĐĂNG TIN
 // ==========================================
@@ -848,7 +736,7 @@ class _PostTabState extends State<PostTab> {
     String description = descriptionController.text.trim();
 
     if (title.isEmpty || address.isEmpty || priceText.isEmpty || description.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng điền đầy đủ thông tin chữ')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng điền đầy đủ thông tin')));
       return;
     }
     if (_imageFile == null) {
@@ -867,13 +755,13 @@ class _PostTabState extends State<PostTab> {
       if (downloadUrl == null) throw Exception("Không thể tải ảnh lên máy chủ ImgBB");
       User? user = FirebaseAuth.instance.currentUser;
 
-      // Lưu Avatar của người dùng lúc đăng tin vào bài viết
       await FirebaseFirestore.instance.collection('rooms').add({
         'title': title, 'address': address, 'price': price, 'description': description,
         'imageUrl': downloadUrl, 'roomType': _selectedRoomType, 'ownerId': user?.uid,
         'ownerName': user?.displayName ?? 'Người dùng',
         'ownerAvatar': user?.photoURL ?? defaultAvatarUrl,
         'createdAt': FieldValue.serverTimestamp(),
+        'likedBy': [],
       });
 
       if (!mounted) return;
@@ -966,6 +854,7 @@ class _PostTabState extends State<PostTab> {
       decoration: InputDecoration(hintText: hint, prefixIcon: Icon(icon, color: Colors.grey), filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
     );
   }
+
 }
 
 // ==========================================
@@ -982,7 +871,6 @@ class _ProfileTabState extends State<ProfileTab> {
   bool isUploadingAvatar = false;
   final ImagePicker _picker = ImagePicker();
 
-  // Hàm tải ảnh lên ImgBB
   Future<String?> _uploadImageToImgBB(File imageFile) async {
     const String imgbbApiKey = "6a3c8ce6b7aff39f890a29a6ef322afc";
     try {
@@ -1000,7 +888,6 @@ class _ProfileTabState extends State<ProfileTab> {
     return null;
   }
 
-  // Cập nhật Avatar (Tự động đồng bộ với bài đăng cũ)
   Future<void> _updateAvatar() async {
     final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (pickedFile == null) return;
@@ -1009,39 +896,26 @@ class _ProfileTabState extends State<ProfileTab> {
     try {
       String? downloadUrl = await _uploadImageToImgBB(File(pickedFile.path));
       if (downloadUrl != null) {
-        // 1. Cập nhật Avatar trong tài khoản Firebase Auth
         await user?.updatePhotoURL(downloadUrl);
         await user?.reload();
 
-        // 2. Cập nhật Avatar cho toàn bộ bài đăng của User này trong Firestore
-        var roomQuery = await FirebaseFirestore.instance
-            .collection('rooms')
-            .where('ownerId', isEqualTo: user?.uid)
-            .get();
-
+        var roomQuery = await FirebaseFirestore.instance.collection('rooms').where('ownerId', isEqualTo: user?.uid).get();
         var batch = FirebaseFirestore.instance.batch();
         for (var doc in roomQuery.docs) {
           batch.update(doc.reference, {'ownerAvatar': downloadUrl});
         }
-        await batch.commit(); // Thực thi đồng loạt
+        await batch.commit();
 
-        setState(() {
-          user = FirebaseAuth.instance.currentUser; // Refresh UI
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật ảnh đại diện')));
-        }
+        setState(() { user = FirebaseAuth.instance.currentUser; });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật ảnh đại diện')));
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
     } finally {
       setState(() => isUploadingAvatar = false);
     }
   }
 
-  // Cập nhật thông tin (Tên, SĐT, Trường)
   Future<void> _showEditProfileDialog(String currentPhone, String currentMajor) async {
     TextEditingController nameController = TextEditingController(text: user?.displayName);
     TextEditingController phoneController = TextEditingController(text: currentPhone);
@@ -1208,8 +1082,10 @@ class _ProfileTabState extends State<ProfileTab> {
                       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 15, offset: const Offset(0, 5))]),
                       child: Column(
                         children: [
-                          _buildProfileOption(icon: Icons.post_add_rounded, title: 'Tin đăng của tôi', iconColor: Colors.blue, onTap: () {}), _buildDivider(),
-                          _buildProfileOption(icon: Icons.favorite_rounded, title: 'Phòng đã lưu', iconColor: Colors.redAccent, onTap: () {}), _buildDivider(),
+                          _buildProfileOption(icon: Icons.post_add_rounded, title: 'Tin đăng của tôi', iconColor: Colors.blue, onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => const MyPostsScreen()));
+                          }), _buildDivider(),
+                          _buildProfileOption(icon: Icons.favorite_rounded, title: 'Bài đăng yêu thích đã lưu', iconColor: Colors.redAccent, onTap: () {Navigator.push(context, MaterialPageRoute(builder: (context) => const SavedRoomsScreen()),);}),
                           _buildProfileOption(icon: Icons.settings_rounded, title: 'Cài đặt', iconColor: Colors.grey[700]!, onTap: () { Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsPage())); }), _buildDivider(),
                           _buildProfileOption(icon: Icons.help_outline_rounded, title: 'Hỗ trợ & Khiếu nại', iconColor: Colors.orange, onTap: () {}),
                         ],
@@ -1230,7 +1106,396 @@ class _ProfileTabState extends State<ProfileTab> {
     return Material(color: Colors.transparent, child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(24), child: Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16), child: Row(children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: iconColor, size: 22)), const SizedBox(width: 16), Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF2D3142)))), Icon(Icons.arrow_forward_ios_rounded, color: Colors.grey[300], size: 16)]))));
   }
 }
+// ==========================================
+// TRANG TIN ĐĂNG CỦA TÔI
+// ==========================================
+class MyPostsScreen extends StatelessWidget {
+  const MyPostsScreen({super.key});
 
+  Future<void> _deletePost(BuildContext context, String docId) async {
+    bool confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xác nhận xóa'),
+        content: const Text('Bạn có chắc chắn muốn xóa tin đăng này không?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy', style: TextStyle(color: Colors.grey))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    ) ?? false;
+
+    if (confirm) {
+      await FirebaseFirestore.instance.collection('rooms').doc(docId).delete();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa bài viết')));
+      }
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    String d = date.day.toString().padLeft(2, '0');
+    String m = date.month.toString().padLeft(2, '0');
+    String y = date.year.toString();
+    String h = date.hour.toString().padLeft(2, '0');
+    String min = date.minute.toString().padLeft(2, '0');
+    return '$h:$min $d/$m/$y';
+  }
+
+  String _formatPrice(double price) {
+    if (price >= 1000000) {
+      return '${(price / 1000000).toStringAsFixed(price % 1000000 == 0 ? 0 : 1)} Tr';
+    } else {
+      return '${price.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} đ';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final User? user = FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FB),
+      appBar: AppBar(
+        title: const Text('Tin đăng của tôi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('rooms')
+            .where('ownerId', isEqualTo: user?.uid)
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Colors.blue));
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Lỗi: ${snapshot.error}'));
+          }
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return const Center(child: Text('Bạn chưa có tin đăng nào.', style: TextStyle(color: Colors.grey, fontSize: 16)));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              var data = docs[index].data() as Map<String, dynamic>;
+              String docId = docs[index].id;
+
+              DateTime postTime = DateTime.now();
+              if (data['createdAt'] != null) {
+                postTime = (data['createdAt'] as Timestamp).toDate();
+              }
+              List<String> postLikedBy = List<String>.from(data['likedBy'] ?? []);
+
+              Room room = Room(
+                id: docId,
+                title: data['title'] ?? '',
+                address: data['address'] ?? '',
+                price: (data['price'] ?? 0).toDouble(),
+                imageUrl: data['imageUrl'] ?? '',
+                description: data['description'] ?? '',
+                ownerName: data['ownerName'] ?? '',
+                ownerAvatar: data['ownerAvatar'] ?? defaultAvatarUrl,
+                roomType: data['roomType'] ?? 'Phòng đơn',
+                createdAt: postTime,
+                likedBy: postLikedBy,
+              );
+
+              // THÊM GESTURE DETECTOR Ở ĐÂY ĐỂ NHẤN VÀO LÀ CHUYỂN TRANG
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => RoomDetailScreen(room: room),
+                    ),
+                  );
+                },
+                behavior: HitTestBehavior.opaque, // Giúp vùng trống vẫn nhận click
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            room.imageUrl,
+                            width: 90,
+                            height: 90,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              width: 90, height: 90, color: Colors.grey[200],
+                              child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                room.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87, height: 1.3),
+                              ),
+                              const SizedBox(height: 6),
+
+                              Text(
+                                '${_formatPrice(room.price)}/tháng',
+                                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              const SizedBox(height: 6),
+
+                              Row(
+                                children: [
+                                  Icon(Icons.meeting_room_rounded, size: 14, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  Text(room.roomType, style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w500)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(Icons.access_time_rounded, size: 14, color: Colors.grey[400]),
+                                  const SizedBox(width: 4),
+                                  Text(_formatDate(room.createdAt), style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        SizedBox(
+                          width: 30,
+                          child: PopupMenuButton<String>(
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
+                            onSelected: (value) {
+                              if (value == 'edit') {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => EditPostScreen(room: room)));
+                              } else if (value == 'delete') {
+                                _deletePost(context, docId);
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit_rounded, color: Colors.blue, size: 20), SizedBox(width: 8), Text('Sửa')])),
+                              const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_rounded, color: Colors.red, size: 20), SizedBox(width: 8), Text('Xóa')])),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+// ==========================================
+// TRANG CHỈNH SỬA TIN ĐĂNG (MỚI THÊM)
+// ==========================================
+class EditPostScreen extends StatefulWidget {
+  final Room room;
+  const EditPostScreen({super.key, required this.room});
+
+  @override
+  State<EditPostScreen> createState() => _EditPostScreenState();
+}
+
+class _EditPostScreenState extends State<EditPostScreen> {
+  late TextEditingController titleController;
+  late TextEditingController addressController;
+  late TextEditingController priceController;
+  late TextEditingController descriptionController;
+  late String _selectedRoomType;
+
+  File? _newImageFile;
+  bool isUpdating = false;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    titleController = TextEditingController(text: widget.room.title);
+    addressController = TextEditingController(text: widget.room.address);
+    priceController = TextEditingController(text: widget.room.price.toStringAsFixed(0));
+    descriptionController = TextEditingController(text: widget.room.description);
+    _selectedRoomType = widget.room.roomType;
+  }
+
+  Future<void> _pickImage() async {
+    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (pickedFile != null) setState(() => _newImageFile = File(pickedFile.path));
+  }
+
+  Future<String?> _uploadImageToImgBB(File imageFile) async {
+    const String imgbbApiKey = "6a3c8ce6b7aff39f890a29a6ef322afc";
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('https://api.imgbb.com/1/upload?key=$imgbbApiKey'));
+      request.files.add(await http.MultipartFile.fromPath('image', imageFile.path));
+      var response = await request.send();
+      if (response.statusCode == 200) {
+        var responseData = await response.stream.bytesToString();
+        var jsonResult = jsonDecode(responseData);
+        return jsonResult['data']['url'];
+      }
+    } catch (e) {
+      debugPrint("Lỗi upload ảnh: $e");
+    }
+    return null;
+  }
+
+  Future<void> updatePost() async {
+    String title = titleController.text.trim();
+    String address = addressController.text.trim();
+    String priceText = priceController.text.trim();
+    String description = descriptionController.text.trim();
+
+    if (title.isEmpty || address.isEmpty || priceText.isEmpty || description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng điền đầy đủ thông tin')));
+      return;
+    }
+    double? price = double.tryParse(priceText);
+
+    setState(() => isUpdating = true);
+    try {
+      String finalImageUrl = widget.room.imageUrl;
+
+      if (_newImageFile != null) {
+        String? downloadUrl = await _uploadImageToImgBB(_newImageFile!);
+        if (downloadUrl != null) {
+          finalImageUrl = downloadUrl;
+        }
+      }
+
+      await FirebaseFirestore.instance.collection('rooms').doc(widget.room.id).update({
+        'title': title,
+        'address': address,
+        'price': price,
+        'description': description,
+        'imageUrl': finalImageUrl,
+        'roomType': _selectedRoomType,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cập nhật thành công!'), backgroundColor: Colors.green));
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => isUpdating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Chỉnh sửa tin đăng', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 20)),
+        backgroundColor: Colors.white, elevation: 0, centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            GestureDetector(
+              onTap: _pickImage,
+              child: Container(
+                width: double.infinity, height: 180,
+                decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[300]!)),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _newImageFile != null
+                      ? Image.file(_newImageFile!, fit: BoxFit.cover, width: double.infinity)
+                      : Image.network(widget.room.imageUrl, fit: BoxFit.cover, width: double.infinity),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('Nhấn vào ảnh để đổi ảnh mới', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedRoomType = 'Phòng đơn'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(color: _selectedRoomType == 'Phòng đơn' ? Colors.blue : Colors.grey[100], borderRadius: BorderRadius.circular(12)),
+                      child: Center(child: Text('Phòng đơn', style: TextStyle(color: _selectedRoomType == 'Phòng đơn' ? Colors.white : Colors.grey[700], fontWeight: FontWeight.bold))),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedRoomType = 'Phòng ghép'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(color: _selectedRoomType == 'Phòng ghép' ? Colors.orange : Colors.grey[100], borderRadius: BorderRadius.circular(12)),
+                      child: Center(child: Text('Phòng ghép', style: TextStyle(color: _selectedRoomType == 'Phòng ghép' ? Colors.white : Colors.grey[700], fontWeight: FontWeight.bold))),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextField(controller: titleController, decoration: InputDecoration(hintText: 'Tiêu đề', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+            const SizedBox(height: 15),
+            TextField(controller: addressController, decoration: InputDecoration(hintText: 'Địa chỉ', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+            const SizedBox(height: 15),
+            TextField(controller: priceController, keyboardType: TextInputType.number, decoration: InputDecoration(hintText: 'Giá', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+            const SizedBox(height: 15),
+            TextField(controller: descriptionController, maxLines: 4, decoration: InputDecoration(hintText: 'Mô tả', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+            const SizedBox(height: 40),
+            SizedBox(
+              width: double.infinity, height: 55,
+              child: ElevatedButton(
+                onPressed: isUpdating ? null : updatePost,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),
+                child: isUpdating ? const CircularProgressIndicator(color: Colors.white) : const Text('LƯU THAY ĐỔI', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// CÁC MÀN HÌNH KHÁC & ĐIỀU HƯỚNG
+// ==========================================
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
   @override
@@ -1265,9 +1530,6 @@ class SettingsPage extends StatelessWidget {
 class InboxTab extends StatelessWidget { const InboxTab({super.key}); @override Widget build(BuildContext context) { return Scaffold(backgroundColor: Colors.white, appBar: AppBar(title: const Text('Hộp thư', style: TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0), body: const Center(child: Text('Tính năng đang phát triển'))); } }
 class ShopTab extends StatelessWidget { const ShopTab({super.key}); @override Widget build(BuildContext context) { return Scaffold(backgroundColor: Colors.white, appBar: AppBar(title: const Text('Tìm phòng ở ghép', style: TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0), body: const Center(child: Text('Đang phát triển'))); } }
 
-// ==========================================
-// ĐIỀU HƯỚNG BOTTOM NAVIGATION BAR
-// ==========================================
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
 
@@ -1345,6 +1607,94 @@ class _MainPageState extends State<MainPage> {
             size: 30,
           ),
         ),
+      ),
+    );
+  }
+}
+// ==========================================
+// TRANG PHÒNG ĐÃ LƯU
+// ==========================================
+class SavedRoomsScreen extends StatelessWidget {
+  const SavedRoomsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final User? user = FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Phòng đã lưu', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 20)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: user == null
+          ? const Center(child: Text('Vui lòng đăng nhập để xem phòng đã lưu.'))
+          : StreamBuilder<QuerySnapshot>(
+        // Truy vấn lấy các phòng mà mảng likedBy chứa uid của user hiện tại
+        stream: FirebaseFirestore.instance
+            .collection('rooms')
+            .where('likedBy', arrayContains: user.uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Colors.blue));
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Lỗi: ${snapshot.error}'));
+          }
+
+          final roomDocs = snapshot.data?.docs ?? [];
+          if (roomDocs.isEmpty) {
+            return const Center(
+              child: Text(
+                'Bạn chưa lưu phòng trọ nào.',
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
+            );
+          }
+
+          // Hiển thị dạng lưới giống trang chủ (HomeTab)
+          return GridView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 0.75,
+            ),
+            itemCount: roomDocs.length,
+            itemBuilder: (context, index) {
+              final data = roomDocs[index].data() as Map<String, dynamic>;
+
+              DateTime postTime = DateTime.now();
+              if (data['createdAt'] != null) {
+                postTime = (data['createdAt'] as Timestamp).toDate();
+              }
+
+              List<String> postLikedBy = List<String>.from(data['likedBy'] ?? []);
+
+              final room = Room(
+                id: roomDocs[index].id,
+                title: data['title'] ?? '',
+                address: data['address'] ?? '',
+                price: (data['price'] ?? 0).toDouble(),
+                imageUrl: data['imageUrl'] ?? '',
+                description: data['description'] ?? '',
+                ownerName: data['ownerName'] ?? 'Người dùng',
+                ownerAvatar: data['ownerAvatar'] ?? defaultAvatarUrl,
+                roomType: data['roomType'] ?? 'Phòng đơn',
+                createdAt: postTime,
+                likedBy: postLikedBy,
+              );
+
+              // Tái sử dụng widget hiển thị item lưới sẵn có của bạn
+              return RoomGridItem(room: room);
+            },
+          );
+        },
       ),
     );
   }
